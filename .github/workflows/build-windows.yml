@@ -1,0 +1,141 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  GH_TOKEN: ${{ github.token }}
+  # Version string embedded into the installers / version metadata.
+  GIT_RELEASE_TAG: "0.1.0-local"
+
+jobs:
+  build-gui:
+    name: Build Warp GUI (warp-oss, x64)
+    runs-on: windows-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable git long paths
+        run: git config --system core.longpaths true
+
+      - name: Install protoc
+        run: |
+          choco install -y protobuf
+          refreshenv
+          $env:Path = "C:\ProgramData\chocolatey\bin;$env:Path"
+          protoc --version
+
+      - name: Install Inno Setup
+        run: choco install -y innosetup
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install cargo release deps (cargo-about)
+        shell: bash
+        run: ./script/install_cargo_release_deps --no-build-deps
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-gui-x64
+
+      - name: Build Warp installer (GUI)
+        id: bundle
+        shell: pwsh
+        run: ./script/windows/bundle.ps1 -ARTIFACT app -CHANNEL oss -ARCH x64
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: WarpOss-Setup-x64
+          path: ${{ steps.bundle.outputs.installer_path }}
+          if-no-files-found: error
+
+      - name: Upload portable exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: warp-oss-exe-x64
+          path: target/x86_64-pc-windows-msvc/rlto/warp-oss.exe
+          if-no-files-found: error
+
+  build-tui:
+    name: Build Warp TUI (warp-tui-oss, x64)
+    runs-on: windows-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable git long paths
+        run: git config --system core.longpaths true
+
+      - name: Install protoc
+        run: |
+          choco install -y protobuf
+          refreshenv
+          $env:Path = "C:\ProgramData\chocolatey\bin;$env:Path"
+          protoc --version
+
+      - name: Install Inno Setup
+        run: choco install -y innosetup
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install cargo release deps (cargo-about)
+        shell: bash
+        run: ./script/install_cargo_release_deps --no-build-deps
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-tui-x64
+
+      - name: Build Warp installer (TUI)
+        id: bundle
+        shell: pwsh
+        env:
+          # The TUI bundle requires an explicit settings-schema source; the
+          # just-built TUI binary implements the same `dump-settings-schema`
+          # contract as the GUI binary.
+          SETTINGS_SCHEMA_EXECUTABLE: ${{ github.workspace }}\target\x86_64-pc-windows-msvc\rcli\warp-tui-oss.exe
+        run: ./script/windows/bundle.ps1 -ARTIFACT tui -CHANNEL oss -ARCH x64
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: WarpAgentCLIOss-Setup-x64
+          path: ${{ steps.bundle.outputs.installer_path }}
+          if-no-files-found: error
+
+      - name: Upload portable payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: warp-tui-oss-portable-x64
+          path: |
+            target/x86_64-pc-windows-msvc/rcli/warp-tui-oss.exe
+            target/x86_64-pc-windows-msvc/rcli/resources
+            app/assets/windows/x64/conpty.dll
+            app/assets/windows/x64/OpenConsole.exe
+            app/assets/windows/x64/vcruntime140.dll
+            app/assets/windows/x64/vcruntime140_1.dll
+            app/assets/windows/x64/msvcp140.dll
+          if-no-files-found: error
